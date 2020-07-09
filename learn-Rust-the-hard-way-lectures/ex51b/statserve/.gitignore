@@ -1,9 +1,0 @@
-*.o
-*.dSYM
-*.so
-.*.sw*
-*.log
-build/*
-tests/*_tests
-bin/statserve
-tags

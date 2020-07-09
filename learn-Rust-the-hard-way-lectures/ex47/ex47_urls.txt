@@ -1,5 +1,0 @@
-/test.tst TestHandler
-/ IndexHandler
-/test/this/out/index.html PageHandler
-/index.html PageHandler
-/and/then/i/have/things/to/test.html PageHandler
