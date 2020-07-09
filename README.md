@@ -26,5 +26,8 @@
 
 - 完成所有的rustlings小练习，结果在rustlings目录
 
+## 7.9
+- 开始做hard way的编程练习题目
+
   
 
