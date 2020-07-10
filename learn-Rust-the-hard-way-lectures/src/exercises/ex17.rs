@@ -1,3 +1,5 @@
+//bug:存数据写文件的时候文件头乱码
+
 use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
