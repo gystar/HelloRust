@@ -1,192 +1,214 @@
-#define MAX_DATA 512
-#define MAX_ROWS 100
+use std::env;
+use std::fs::{File, OpenOptions};
+use std::io::prelude::*;
 
+const SPLITTER: char = '|'; //字段之间的分割符号
+const MAX_ROWS: usize = 256;
 struct Address {
-    int id;
-    int set;
-    char name[MAX_DATA];
-    char email[MAX_DATA];
-};
-
+    id: usize,
+    set: i32,
+    name: String,
+    email: String,
+}
 struct Database {
-    struct Address rows[MAX_ROWS];
-};
+    rows: Vec<Address>,
+}
 
 struct Connection {
-    FILE *file;
-    struct Database *db;
-};
+    file: Option<File>,
+    db: Database,
+}
 
-void die(const char *message)
-{
-    if(errno) {
-        perror(message);
-    } else {
-        printf("ERROR: %s\n", message);
+fn address_print(addr: &Address) {
+    print!("{:?} {:?} {:?}\n", addr.id, addr.name, addr.email);
+}
+
+fn database_load(conn: &mut Connection) {
+    let mut buff = String::new();
+    match conn.file.as_ref().unwrap().read_to_string(&mut buff) {
+        Ok(_) => {}
+        Err(_) => panic!("Failed to load database."),
     }
-
-    exit(1);
+    let mut index = 0;
+    for line in buff.lines() {
+        let v = line.split(SPLITTER).collect::<Vec<_>>();
+        conn.db.rows[index].id = v[0].parse::<usize>().unwrap();
+        conn.db.rows[index].set = v[1].parse::<i32>().unwrap();
+        conn.db.rows[index].name = v[2].to_string();
+        conn.db.rows[index].email = v[3].to_string();
+        index += 1;
+    }
 }
 
-void Address_print(struct Address *addr)
-{
-    printf("%d %s %s\n",
-            addr->id, addr->name, addr->email);
-}
-
-void Database_load(struct Connection *conn)
-{
-    int rc = fread(conn->db, sizeof(struct Database), 1, conn->file);
-    if(rc != 1) die("Failed to load database.");
-}
-
-struct Connection *Database_open(const char *filename, char mode)
-{
-    struct Connection *conn = malloc(sizeof(struct Connection));
-    if(!conn) die("Memory error");
-
-    conn->db = malloc(sizeof(struct Database));
-    if(!conn->db) die("Memory error");
-
-    if(mode == 'c') {
-        conn->file = fopen(filename, "w");
+fn database_open(filename: &String, mode: char) -> Connection {
+    let mut con = Connection {
+        file: None,
+        db: Database {
+            rows: Vec::<Address>::new(),
+        },
+    };
+    for _ in 0..MAX_ROWS {
+        con.db.rows.push(Address {
+            id: MAX_ROWS,
+            set: 0,
+            name: String::new(),
+            email: String::new(),
+        });
+    }
+    if mode == 'c' {
+        match OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .open(filename)
+        {
+            Ok(f) => {
+                con.file = Some(f);
+            }
+            Err(_) => {
+                panic!("fail to create \"{:?}\"", filename);
+            }
+        }
     } else {
-        conn->file = fopen(filename, "r+");
-
-        if(conn->file) {
-            Database_load(conn);
+        match OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(filename)
+        {
+            Ok(f) => {
+                con.file = Some(f);
+                database_load(&mut con);
+            }
+            Err(_) => {
+                panic!("fail to open \"{:?}\"", filename);
+            }
         }
     }
-
-    if(!conn->file) die("Failed to open the file");
-
-    return conn;
+    con
 }
 
-void Database_close(struct Connection *conn)
-{
-    if(conn) {
-        if(conn->file) fclose(conn->file);
-        if(conn->db) free(conn->db);
-        free(conn);
+fn database_create(conn: &mut Connection) {
+    let mut index = 0;
+    for r in conn.db.rows.iter_mut() {
+        r.id = index;
+        r.set = 0;
+        index += 1;
     }
 }
 
-void Database_write(struct Connection *conn)
-{
-    rewind(conn->file);
+fn database_write(conn: &Connection) {
+    let mut data = String::new();
+    let mut row = 1;
+    for addr in conn.db.rows.iter() {
+        data += &addr.id.to_string();
+        data.push(SPLITTER);
+        data += &addr.set.to_string();
+        data.push(SPLITTER);
+        data += &addr.name;
+        data.push(SPLITTER);
+        data += &addr.email;
+        if row < MAX_ROWS {
+            data.push('\n');
+        }
+        row += 1;
+    }
 
-    int rc = fwrite(conn->db, sizeof(struct Database), 1, conn->file);
-    if(rc != 1) die("Failed to write database.");
-
-    rc = fflush(conn->file);
-    if(rc == -1) die("Cannot flush database.");
-}
-
-void Database_create(struct Connection *conn)
-{
-    int i = 0;
-
-    for(i = 0; i < MAX_ROWS; i++) {
-        // make a prototype to initialize it
-        struct Address addr = {.id = i, .set = 0};
-        // then just assign it
-        conn->db->rows[i] = addr;
+    let _ = conn.file.as_ref().unwrap().set_len(0); //先清空文件内容
+    match conn.file.as_ref().unwrap().write(data.as_bytes()) {
+        Ok(_) => {}
+        Err(_) => {
+            panic!("Failed to write database.");
+        }
     }
 }
 
-void Database_set(struct Connection *conn, int id, const char *name, const char *email)
-{
-    struct Address *addr = &conn->db->rows[id];
-    if(addr->set) die("Already set, delete it first");
+fn database_set(conn: &mut Connection, index: usize, name: &str, email: &str) {
+    let addr = &mut conn.db.rows[index];
+    if addr.set == 1 {
+        panic!("Already set, delete it first");
+    }
 
-    addr->set = 1;
+    addr.set = 1;
     // WARNING: bug, read the "How To Break It" and fix this
-    char *res = strncpy(addr->name, name, MAX_DATA);
-    // demonstrate the strncpy bug
-    if(!res) die("Name copy failed");
-
-    res = strncpy(addr->email, email, MAX_DATA);
-    if(!res) die("Email copy failed");
+    addr.name = name.to_string();
+    addr.email = email.to_string();
 }
 
-void Database_get(struct Connection *conn, int id)
-{
-    struct Address *addr = &conn->db->rows[id];
-
-    if(addr->set) {
-        Address_print(addr);
+fn database_get(conn: &Connection, id: usize) {
+    let addr: &Address = &conn.db.rows[id];
+    if addr.set == 1 {
+        address_print(addr);
     } else {
-        die("ID is not set");
+        panic!("ID is not set");
     }
 }
 
-void Database_delete(struct Connection *conn, int id)
-{
-    struct Address addr = {.id = id, .set = 0};
-    conn->db->rows[id] = addr;
+fn database_delete(conn: &mut Connection, id: usize) {
+    let addr: &mut Address = &mut conn.db.rows[id];
+    addr.set = 0;
 }
 
-void Database_list(struct Connection *conn)
-{
-    int i = 0;
-    struct Database *db = conn->db;
-
-    for(i = 0; i < MAX_ROWS; i++) {
-        struct Address *cur = &db->rows[i];
-
-        if(cur->set) {
-            Address_print(cur);
+fn database_list(conn: &Connection) {
+    for r in conn.db.rows.iter() {
+        address_print(r);
+        if r.set == 1 {
+            //address_print(r);
         }
     }
 }
 
-int main(int argc, char *argv[])
-{
-    if(argc < 3) die("USAGE: ex17 <dbfile> <action> [action params]");
-
-    char *filename = argv[1];
-    char action = argv[2][0];
-    struct Connection *conn = Database_open(filename, action);
-    int id = 0;
-
-    if(argc > 3) id = atoi(argv[3]);
-    if(id >= MAX_ROWS) die("There's not that many records.");
-
-    switch(action) {
-        case 'c':
-            Database_create(conn);
-            Database_write(conn);
-            break;
-
-        case 'g':
-            if(argc != 4) die("Need an id to get");
-
-            Database_get(conn, id);
-            break;
-
-        case 's':
-            if(argc != 6) die("Need id, name, email to set");
-
-            Database_set(conn, id, argv[4], argv[5]);
-            Database_write(conn);
-            break;
-
-        case 'd':
-            if(argc != 4) die("Need id to delete");
-
-            Database_delete(conn, id);
-            Database_write(conn);
-            break;
-
-        case 'l':
-            Database_list(conn);
-            break;
-        default:
-            die("Invalid action, only: c=create, g=get, s=set, d=del, l=list");
+fn main() {
+    let mut args = Vec::new();
+    for arg in env::args() {
+        args.push(arg);
+    }
+    if args.len() < 3 {
+        panic!("USAGE: ex17 <dbfile> <action> [action params]");
     }
 
-    Database_close(conn);
+    let mut filepath = env::current_dir().unwrap().to_str().unwrap().to_string();
+    println!("{:?}", filepath);
+    filepath += "\\";
+    filepath += &args[1];
+    let action = args[2].chars().next().unwrap();
 
-    return 0;
+    let mut conn = database_open(&filepath, action);
+    let mut id = 0;
+
+    if args.len() > 3 {
+        id = args[3].parse::<usize>().unwrap();
+    }
+    if id >= MAX_ROWS {
+        panic!("There's not that many records.");
+    }
+
+    if action == 'c' {
+        database_create(&mut conn);
+        database_write(&mut conn);
+    } else if action == 'g' {
+        if args.len() < 4 {
+            panic!("Need an id to get");
+        }
+        database_get(&conn, id);
+    } else if action == 's' {
+        if args.len() < 6 {
+            panic!("Need id, name, email to set");
+        }
+        database_set(&mut conn, id, &args[4], &args[5]);
+        database_list(&conn);
+        database_write(&mut conn);
+    } else if action == 'd' {
+        if args.len() < 4 {
+            panic!("Need an id to get");
+        }
+
+        database_delete(&mut conn, id);
+        database_write(&mut conn);
+    } else if action == 'l' {
+        database_list(&conn);
+    } else {
+        panic!("Invalid action, only: c=create, g=get, s=set, d=del, l=list");
+    }
 }
