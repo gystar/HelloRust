@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "rust-toolchain": "rust",
+        "iostream": "cpp"
+    }
+}

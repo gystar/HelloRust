@@ -1,6 +1,7 @@
 //题目链接:https://pintia.cn/problem-sets/994805342720868352/problems/994805523835109376
 //测试数据：
 /*
+Sample Input:
 5 6 0 2
 1 2 1 5 3
 0 1 1
@@ -9,6 +10,8 @@
 1 2 1
 2 4 1
 3 4 1
+Sample Output:
+2 4
 */
 use core::cmp::Ordering;
 use std::cmp::{max, min};
